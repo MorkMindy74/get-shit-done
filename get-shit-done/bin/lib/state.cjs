@@ -114,7 +114,7 @@ function cmdStatePatch(cwd, patches, raw) {
   }
 }
 
-function cmdStateUpdate(cwd, field, value) {
+function cmdStateUpdate(cwd, field, value, raw) {
   if (!field || value === undefined) {
     error('field and value required for state update');
   }
@@ -127,12 +127,12 @@ function cmdStateUpdate(cwd, field, value) {
     if (pattern.test(content)) {
       content = content.replace(pattern, `$1${value}`);
       fs.writeFileSync(statePath, content, 'utf-8');
-      output({ updated: true });
+      output({ updated: true }, raw, 'true');
     } else {
-      output({ updated: false, reason: `Field "${field}" not found in STATE.md` });
+      output({ updated: false, reason: `Field "${field}" not found in STATE.md` }, raw, 'false');
     }
   } catch {
-    output({ updated: false, reason: 'STATE.md not found' });
+    output({ updated: false, reason: 'STATE.md not found' }, raw, 'false');
   }
 }
 
@@ -233,8 +233,8 @@ function cmdStateUpdateProgress(cwd, raw) {
       .filter(e => e.isDirectory()).map(e => e.name);
     for (const dir of phaseDirs) {
       const files = fs.readdirSync(path.join(phasesDir, dir));
-      totalPlans += files.filter(f => f.match(/-PLAN\.md$/i)).length;
-      totalSummaries += files.filter(f => f.match(/-SUMMARY\.md$/i)).length;
+      totalPlans += files.filter(f => f.match(/-PLAN\.md$/i) || f === 'PLAN.md').length;
+      totalSummaries += files.filter(f => f.match(/-SUMMARY\.md$/i) || f === 'SUMMARY.md').length;
     }
   }
 
@@ -419,6 +419,24 @@ function cmdStateSnapshot(cwd, raw) {
           summary: cells[1],
           rationale: cells[2],
         });
+      }
+    }
+  }
+
+  // Also parse bullet-point format decisions (written by cmdStateAddDecision)
+  if (decisions.length === 0) {
+    const bulletDecisionsMatch = content.match(/##\s*(?:Decisions|Decisions Made|Accumulated.*Decisions)\s*\n([\s\S]*?)(?=\n##|$)/i);
+    if (bulletDecisionsMatch) {
+      const bulletItems = bulletDecisionsMatch[1].match(/^-\s+\[([^\]]*)\]:\s*(.+)$/gm) || [];
+      for (const item of bulletItems) {
+        const parsed = item.match(/^-\s+\[([^\]]*)\]:\s*(.+?)(?:\s*—\s*(.+))?$/);
+        if (parsed) {
+          decisions.push({
+            phase: parsed[1],
+            summary: parsed[2].trim(),
+            rationale: parsed[3] ? parsed[3].trim() : '',
+          });
+        }
       }
     }
   }

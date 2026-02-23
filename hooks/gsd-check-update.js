@@ -21,6 +21,23 @@ if (!fs.existsSync(cacheDir)) {
   fs.mkdirSync(cacheDir, { recursive: true });
 }
 
+// Check if we've checked recently (within 1 hour)
+if (fs.existsSync(cacheFile)) {
+  try {
+    const cache = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+    if (cache.checked) {
+      const lastCheck = new Date(cache.checked * 1000).getTime(); // checked is unix timestamp in seconds
+      const now = Date.now();
+      const ONE_HOUR = 60 * 60 * 1000;
+      if (now - lastCheck < ONE_HOUR) {
+        process.exit(0); // Skip check, too recent
+      }
+    }
+  } catch (e) {
+    // Corrupted cache file, proceed with check
+  }
+}
+
 // Run check in background (spawn background process, windowsHide prevents console flash)
 const child = spawn(process.execPath, ['-e', `
   const fs = require('fs');

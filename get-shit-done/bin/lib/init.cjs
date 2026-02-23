@@ -4,7 +4,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
 const { loadConfig, resolveModelInternal, findPhaseInternal, getRoadmapPhaseInternal, pathExistsInternal, generateSlugInternal, getMilestoneInfo, normalizePhaseName, output, error } = require('./core.cjs');
 
 function cmdInitExecutePhase(cwd, phase, raw) {
@@ -155,12 +154,18 @@ function cmdInitNewProject(cwd, raw) {
   let hasCode = false;
   let hasPackageFile = false;
   try {
-    const files = execSync('find . -maxdepth 3 \\( -name "*.ts" -o -name "*.js" -o -name "*.py" -o -name "*.go" -o -name "*.rs" -o -name "*.swift" -o -name "*.java" \\) 2>/dev/null | grep -v node_modules | grep -v .git | head -5', {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    hasCode = files.trim().length > 0;
+    const codeExts = ['.ts', '.js', '.py', '.go', '.rs', '.swift', '.java'];
+    const scanDir = (dir, depth) => {
+      if (depth > 3) return false;
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const e of entries) {
+        if (e.name === 'node_modules' || e.name === '.git') continue;
+        if (e.isFile() && codeExts.some(ext => e.name.endsWith(ext))) return true;
+        if (e.isDirectory() && scanDir(path.join(dir, e.name), depth + 1)) return true;
+      }
+      return false;
+    };
+    hasCode = scanDir(cwd, 0);
   } catch {}
 
   hasPackageFile = pathExistsInternal(cwd, 'package.json') ||
@@ -509,7 +514,7 @@ function cmdInitMilestoneOp(cwd, raw) {
   } catch {}
 
   // Check archive
-  const archiveDir = path.join(cwd, '.planning', 'archive');
+  const archiveDir = path.join(cwd, '.planning', 'milestones');
   let archivedMilestones = [];
   try {
     archivedMilestones = fs.readdirSync(archiveDir, { withFileTypes: true })

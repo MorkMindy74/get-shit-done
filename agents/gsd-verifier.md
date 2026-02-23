@@ -2,7 +2,7 @@
 name: gsd-verifier
 description: Verifies phase goal achievement through goal-backward analysis. Checks codebase delivers what phase promised, not just that tasks completed. Creates VERIFICATION.md report.
 tools: Read, Write, Bash, Grep, Glob
-color: green
+color: emerald
 ---
 
 <role>
@@ -198,41 +198,7 @@ For each link:
 
 **Fallback patterns** (if must_haves.key_links not defined in PLAN):
 
-### Pattern: Component → API
-
-```bash
-grep -E "fetch\(['\"].*$api_path|axios\.(get|post).*$api_path" "$component" 2>/dev/null
-grep -A 5 "fetch\|axios" "$component" | grep -E "await|\.then|setData|setState" 2>/dev/null
-```
-
-Status: WIRED (call + response handling) | PARTIAL (call, no response use) | NOT_WIRED (no call)
-
-### Pattern: API → Database
-
-```bash
-grep -E "prisma\.$model|db\.$model|$model\.(find|create|update|delete)" "$route" 2>/dev/null
-grep -E "return.*json.*\w+|res\.json\(\w+" "$route" 2>/dev/null
-```
-
-Status: WIRED (query + result returned) | PARTIAL (query, static return) | NOT_WIRED (no query)
-
-### Pattern: Form → Handler
-
-```bash
-grep -E "onSubmit=\{|handleSubmit" "$component" 2>/dev/null
-grep -A 10 "onSubmit.*=" "$component" | grep -E "fetch|axios|mutate|dispatch" 2>/dev/null
-```
-
-Status: WIRED (handler + API call) | STUB (only logs/preventDefault) | NOT_WIRED (no handler)
-
-### Pattern: State → Render
-
-```bash
-grep -E "useState.*$state_var|\[$state_var," "$component" 2>/dev/null
-grep -E "\{.*$state_var.*\}|\{$state_var\." "$component" 2>/dev/null
-```
-
-Status: WIRED (state displayed) | NOT_WIRED (state exists, not rendered)
+See [wiring-patterns.md](../get-shit-done/references/wiring-patterns.md) for the shared wiring verification grep patterns (Component->API, API->Database, Form->Handler, State->Render).
 
 ## Step 6: Check Requirements Coverage
 

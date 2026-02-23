@@ -6,6 +6,11 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
+// ─── Test Mode ───────────────────────────────────────────────────────────────
+
+let _testMode = false;
+function setTestMode(enabled) { _testMode = enabled; }
+
 // ─── Model Profile Table ─────────────────────────────────────────────────────
 
 const MODEL_PROFILES = {
@@ -20,6 +25,27 @@ const MODEL_PROFILES = {
   'gsd-verifier':             { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku' },
   'gsd-plan-checker':         { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku' },
   'gsd-integration-checker':  { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku' },
+};
+
+// ─── Config Defaults (single source of truth) ───────────────────────────────
+// Nested structure matches the on-disk config.json format.
+// loadConfig() flattens workflow.* keys to top-level for backward compat.
+
+const CONFIG_DEFAULTS = {
+  model_profile: 'balanced',
+  commit_docs: true,
+  search_gitignored: false,
+  branching_strategy: 'none',
+  phase_branch_template: 'gsd/phase-{phase}-{slug}',
+  milestone_branch_template: 'gsd/{milestone}-{slug}',
+  workflow: {
+    research: true,
+    plan_check: true,
+    verifier: true,
+    nyquist_validation: false,
+  },
+  parallelization: true,
+  brave_search: false,
 };
 
 // ─── Output helpers ───────────────────────────────────────────────────────────
@@ -39,12 +65,12 @@ function output(result, raw, rawValue) {
       process.stdout.write(json);
     }
   }
-  process.exit(0);
+  if (!_testMode) process.exit(0);
 }
 
 function error(message) {
   process.stderr.write('Error: ' + message + '\n');
-  process.exit(1);
+  if (!_testMode) process.exit(1);
 }
 
 // ─── File & Config utilities ──────────────────────────────────────────────────
@@ -59,18 +85,21 @@ function safeReadFile(filePath) {
 
 function loadConfig(cwd) {
   const configPath = path.join(cwd, '.planning', 'config.json');
+  // Flatten CONFIG_DEFAULTS: top-level keys stay as-is, workflow.* keys are
+  // promoted to top level with plan_check -> plan_checker for legacy compat.
   const defaults = {
-    model_profile: 'balanced',
-    commit_docs: true,
-    search_gitignored: false,
-    branching_strategy: 'none',
-    phase_branch_template: 'gsd/phase-{phase}-{slug}',
-    milestone_branch_template: 'gsd/{milestone}-{slug}',
-    research: true,
-    plan_checker: true,
-    verifier: true,
-    parallelization: true,
-    brave_search: false,
+    model_profile: CONFIG_DEFAULTS.model_profile,
+    commit_docs: CONFIG_DEFAULTS.commit_docs,
+    search_gitignored: CONFIG_DEFAULTS.search_gitignored,
+    branching_strategy: CONFIG_DEFAULTS.branching_strategy,
+    phase_branch_template: CONFIG_DEFAULTS.phase_branch_template,
+    milestone_branch_template: CONFIG_DEFAULTS.milestone_branch_template,
+    research: CONFIG_DEFAULTS.workflow.research,
+    plan_checker: CONFIG_DEFAULTS.workflow.plan_check,
+    verifier: CONFIG_DEFAULTS.workflow.verifier,
+    nyquist_validation: CONFIG_DEFAULTS.workflow.nyquist_validation,
+    parallelization: CONFIG_DEFAULTS.parallelization,
+    brave_search: CONFIG_DEFAULTS.brave_search,
   };
 
   try {
@@ -102,6 +131,7 @@ function loadConfig(cwd) {
       research: get('research', { section: 'workflow', field: 'research' }) ?? defaults.research,
       plan_checker: get('plan_checker', { section: 'workflow', field: 'plan_check' }) ?? defaults.plan_checker,
       verifier: get('verifier', { section: 'workflow', field: 'verifier' }) ?? defaults.verifier,
+      nyquist_validation: get('nyquist_validation', { section: 'workflow', field: 'nyquist_validation' }) ?? defaults.nyquist_validation,
       parallelization,
       brave_search: get('brave_search') ?? defaults.brave_search,
     };
@@ -377,8 +407,42 @@ function getMilestoneInfo(cwd) {
   }
 }
 
+// ─── Phase Index ─────────────────────────────────────────────────────────────
+
+function buildPhaseIndex(cwd) {
+  const phasesDir = path.join(cwd, '.planning', 'phases');
+  if (!fs.existsSync(phasesDir)) return { phases: [], byNumber: {}, files: {} };
+
+  const entries = fs.readdirSync(phasesDir, { withFileTypes: true })
+    .filter(e => e.isDirectory())
+    .map(e => {
+      const normalized = normalizePhaseName(e.name);
+      const fullPath = path.join(phasesDir, e.name);
+      const files = fs.readdirSync(fullPath);
+      return {
+        name: e.name,
+        normalized,
+        path: fullPath,
+        plans: files.filter(f => f.endsWith('-PLAN.md') || f === 'PLAN.md'),
+        summaries: files.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md'),
+        allFiles: files,
+      };
+    });
+
+  const byNumber = {};
+  for (const phase of entries) {
+    if (phase.normalized) byNumber[phase.normalized] = phase;
+  }
+
+  entries.sort((a, b) => comparePhaseNum(a.name, b.name));
+
+  return { phases: entries, byNumber, phasesDir };
+}
+
 module.exports = {
+  CONFIG_DEFAULTS,
   MODEL_PROFILES,
+  setTestMode,
   output,
   error,
   safeReadFile,
@@ -395,4 +459,5 @@ module.exports = {
   pathExistsInternal,
   generateSlugInternal,
   getMilestoneInfo,
+  buildPhaseIndex,
 };

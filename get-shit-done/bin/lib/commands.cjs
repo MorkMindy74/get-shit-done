@@ -3,22 +3,13 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
-const { safeReadFile, loadConfig, isGitIgnored, execGit, normalizePhaseName, getArchivedPhaseDirs, generateSlugInternal, getMilestoneInfo, resolveModelInternal, MODEL_PROFILES, output, error, findPhaseInternal } = require('./core.cjs');
+const { safeReadFile, loadConfig, isGitIgnored, execGit, normalizePhaseName, getArchivedPhaseDirs, generateSlugInternal, getMilestoneInfo, resolveModelInternal, MODEL_PROFILES, output, error, findPhaseInternal, buildPhaseIndex } = require('./core.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 
 function cmdGenerateSlug(text, raw) {
-  if (!text) {
-    error('text required for slug generation');
-  }
-
-  const slug = text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-
-  const result = { slug };
-  output(result, raw, slug);
+  if (!text) error('text required for slug generation');
+  const slug = generateSlugInternal(text);
+  output({ slug }, raw, slug);
 }
 
 function cmdCurrentTimestamp(format, raw) {
@@ -97,7 +88,6 @@ function cmdVerifyPathExists(cwd, targetPath, raw) {
 }
 
 function cmdHistoryDigest(cwd, raw) {
-  const phasesDir = path.join(cwd, '.planning', 'phases');
   const digest = { phases: {}, decisions: [], tech_stack: new Set() };
 
   // Collect all phase directories: archived + current
@@ -109,17 +99,10 @@ function cmdHistoryDigest(cwd, raw) {
     allPhaseDirs.push({ name: a.name, fullPath: a.fullPath, milestone: a.milestone });
   }
 
-  // Add current phases
-  if (fs.existsSync(phasesDir)) {
-    try {
-      const currentDirs = fs.readdirSync(phasesDir, { withFileTypes: true })
-        .filter(e => e.isDirectory())
-        .map(e => e.name)
-        .sort();
-      for (const dir of currentDirs) {
-        allPhaseDirs.push({ name: dir, fullPath: path.join(phasesDir, dir), milestone: null });
-      }
-    } catch {}
+  // Add current phases via buildPhaseIndex
+  const currentPhaseIndex = buildPhaseIndex(cwd);
+  for (const phase of currentPhaseIndex.phases) {
+    allPhaseDirs.push({ name: phase.name, fullPath: phase.path, milestone: null });
   }
 
   if (allPhaseDirs.length === 0) {
@@ -204,16 +187,7 @@ function cmdResolveModel(cwd, agentType, raw) {
 
   const config = loadConfig(cwd);
   const profile = config.model_profile || 'balanced';
-
-  const agentModels = MODEL_PROFILES[agentType];
-  if (!agentModels) {
-    const result = { model: 'sonnet', profile, unknown_agent: true };
-    output(result, raw, 'sonnet');
-    return;
-  }
-
-  const resolved = agentModels[profile] || agentModels['balanced'] || 'sonnet';
-  const model = resolved === 'opus' ? 'inherit' : resolved;
+  const model = resolveModelInternal(cwd, agentType);
   const result = { model, profile };
   output(result, raw, model);
 }
@@ -384,42 +358,31 @@ async function cmdWebsearch(query, options, raw) {
 }
 
 function cmdProgressRender(cwd, format, raw) {
-  const phasesDir = path.join(cwd, '.planning', 'phases');
-  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
   const milestone = getMilestoneInfo(cwd);
 
   const phases = [];
   let totalPlans = 0;
   let totalSummaries = 0;
 
-  try {
-    const entries = fs.readdirSync(phasesDir, { withFileTypes: true });
-    const dirs = entries.filter(e => e.isDirectory()).map(e => e.name).sort((a, b) => {
-      const aNum = parseFloat(a.match(/^(\d+(?:\.\d+)?)/)?.[1] || '0');
-      const bNum = parseFloat(b.match(/^(\d+(?:\.\d+)?)/)?.[1] || '0');
-      return aNum - bNum;
-    });
+  const progressIndex = buildPhaseIndex(cwd);
+  for (const entry of progressIndex.phases) {
+    const dm = entry.name.match(/^(\d+(?:\.\d+)?)-?(.*)/);
+    const phaseNum = dm ? dm[1] : entry.name;
+    const phaseName = dm && dm[2] ? dm[2].replace(/-/g, ' ') : '';
+    const plans = entry.plans.length;
+    const summaries = entry.summaries.length;
 
-    for (const dir of dirs) {
-      const dm = dir.match(/^(\d+(?:\.\d+)?)-?(.*)/);
-      const phaseNum = dm ? dm[1] : dir;
-      const phaseName = dm && dm[2] ? dm[2].replace(/-/g, ' ') : '';
-      const phaseFiles = fs.readdirSync(path.join(phasesDir, dir));
-      const plans = phaseFiles.filter(f => f.endsWith('-PLAN.md') || f === 'PLAN.md').length;
-      const summaries = phaseFiles.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md').length;
+    totalPlans += plans;
+    totalSummaries += summaries;
 
-      totalPlans += plans;
-      totalSummaries += summaries;
+    let status;
+    if (plans === 0) status = 'Pending';
+    else if (summaries >= plans) status = 'Complete';
+    else if (summaries > 0) status = 'In Progress';
+    else status = 'Planned';
 
-      let status;
-      if (plans === 0) status = 'Pending';
-      else if (summaries >= plans) status = 'Complete';
-      else if (summaries > 0) status = 'In Progress';
-      else status = 'Planned';
-
-      phases.push({ number: phaseNum, name: phaseName, plans, summaries, status });
-    }
-  } catch {}
+    phases.push({ number: phaseNum, name: phaseName, plans, summaries, status });
+  }
 
   const percent = totalPlans > 0 ? Math.round((totalSummaries / totalPlans) * 100) : 0;
 
@@ -471,10 +434,16 @@ function cmdTodoComplete(cwd, filename, raw) {
   // Ensure completed directory exists
   fs.mkdirSync(completedDir, { recursive: true });
 
-  // Read, add completion timestamp, move
+  // Read, add completion timestamp inside frontmatter, move
   let content = fs.readFileSync(sourcePath, 'utf-8');
   const today = new Date().toISOString().split('T')[0];
-  content = `completed: ${today}\n` + content;
+  if (content.startsWith('---')) {
+    // Insert completed field inside existing frontmatter
+    content = content.replace(/^---\n/, `---\ncompleted: ${today}\n`);
+  } else {
+    // No frontmatter exists, add it
+    content = `---\ncompleted: ${today}\n---\n${content}`;
+  }
 
   fs.writeFileSync(path.join(completedDir, filename), content, 'utf-8');
   fs.unlinkSync(sourcePath);

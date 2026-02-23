@@ -4,7 +4,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { output, error } = require('./core.cjs');
+const { output, error, CONFIG_DEFAULTS } = require('./core.cjs');
 
 function cmdConfigEnsureSection(cwd, raw) {
   const configPath = path.join(cwd, '.planning', 'config.json');
@@ -42,21 +42,9 @@ function cmdConfigEnsureSection(cwd, raw) {
     // Ignore malformed global defaults, fall back to hardcoded
   }
 
-  // Create default config (user-level defaults override hardcoded defaults)
+  // Create default config (user-level defaults override CONFIG_DEFAULTS)
   const hardcoded = {
-    model_profile: 'balanced',
-    commit_docs: true,
-    search_gitignored: false,
-    branching_strategy: 'none',
-    phase_branch_template: 'gsd/phase-{phase}-{slug}',
-    milestone_branch_template: 'gsd/{milestone}-{slug}',
-    workflow: {
-      research: true,
-      plan_check: true,
-      verifier: true,
-      nyquist_validation: false,
-    },
-    parallelization: true,
+    ...CONFIG_DEFAULTS,
     brave_search: hasBraveSearch,
   };
   const defaults = {
