@@ -260,3 +260,9 @@ The installer prompts for:
     ## License
 
     MIT License. See [LICENSE](LICENSE) for details.
+
+    ---
+
+    ## Acknowledgements
+
+    Arsenale is based on [GSD — Get Shit Done](https://github.com/glittercowboy/get-shit-done) by [@glittercowboy](https://github.com/glittercowboy). This project extends and adapts the original work into a multi-agent orchestration engine.
