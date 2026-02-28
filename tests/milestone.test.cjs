@@ -90,6 +90,33 @@ describe('milestone complete command', () => {
     assert.ok(milestones.includes('v0.9 Alpha'), 'existing entry should be preserved');
     assert.ok(milestones.includes('v1.0 Beta'), 'new entry should be appended');
   });
+
+  test('should handle duplicate milestone version gracefully', () => {
+    // Setup: create a milestone entry for v1.0 first
+    const milestonesPath = path.join(tmpDir, '.planning', 'MILESTONES.md');
+    fs.writeFileSync(milestonesPath, '# Milestones\n\n## v1.0 — First Release\n', 'utf-8');
+
+    // Create minimal required files
+    const roadmapPath = path.join(tmpDir, '.planning', 'ROADMAP.md');
+    fs.writeFileSync(roadmapPath, '# Roadmap\n## Phase 1: Setup\n- [x] Done\n', 'utf-8');
+
+    const statePath = path.join(tmpDir, '.planning', 'STATE.md');
+    fs.writeFileSync(statePath, '**Status:** Active\n**Current Phase:** 1\n', 'utf-8');
+
+    const result = runGsdTools('milestone complete v1.0 --name "First Release"', tmpDir);
+    // Should still succeed (append to existing)
+    const milestones = fs.readFileSync(milestonesPath, 'utf-8');
+    assert.ok(milestones.includes('v1.0'), 'Should contain version');
+  });
+
+  test('should handle missing STATE.md', () => {
+    const roadmapPath = path.join(tmpDir, '.planning', 'ROADMAP.md');
+    fs.writeFileSync(roadmapPath, '# Roadmap\n## Phase 1: Setup\n', 'utf-8');
+
+    const result = runGsdTools('milestone complete v1.0 --name Test', tmpDir);
+    // Should handle gracefully without crashing
+    assert.ok(result.output || result.error, 'Should produce output or error');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

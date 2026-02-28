@@ -56,7 +56,37 @@ A "complete" codebase with broken wiring is a broken product.
 - Requirements with no cross-phase wiring MUST be flagged in the Requirements Integration Map
   </inputs>
 
+<wiring_reference>
+
+See [wiring-patterns.md](../get-shit-done/references/wiring-patterns.md) for the shared wiring verification grep patterns (Component->API, API->Database, Form->Handler, State->Render) used across verification agents.
+
+</wiring_reference>
+
 <verification_process>
+
+## Step 0: Detect Framework
+
+Before running verification patterns, detect the project's framework:
+
+```bash
+# Detect framework from package.json, requirements.txt, go.mod, Cargo.toml, etc.
+if [ -f "package.json" ]; then
+  # Check for React/Next.js/Vue/Svelte/Angular
+  grep -l "react\|next\|vue\|svelte\|angular" package.json
+fi
+if [ -f "requirements.txt" ] || [ -f "pyproject.toml" ]; then
+  echo "Python project detected"
+fi
+if [ -f "go.mod" ]; then echo "Go project detected"; fi
+if [ -f "Cargo.toml" ]; then echo "Rust project detected"; fi
+```
+
+Adapt all subsequent verification patterns based on detected framework:
+- **React/Next.js**: fetch, axios, useAuth, prisma (current patterns)
+- **Vue/Nuxt**: $fetch, useFetch, useAuth, Pinia stores
+- **Python/Django**: requests, Django ORM, Django auth
+- **Go**: http.Client, GORM, middleware patterns
+- **Default**: generic HTTP client, SQL, auth middleware patterns
 
 ## Step 1: Build Export/Import Map
 

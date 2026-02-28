@@ -72,6 +72,26 @@ describe('validate consistency command', () => {
       'should warn about gap'
     );
   });
+
+  test('should detect phase in ROADMAP but missing on disk', () => {
+    const roadmapPath = path.join(tmpDir, '.planning', 'ROADMAP.md');
+    fs.writeFileSync(roadmapPath, '# Roadmap\n## Phase 1: Exists\n## Phase 2: Missing\n', 'utf-8');
+
+    // Only create phase 1 directory
+    fs.mkdirSync(path.join(tmpDir, '.planning', 'phases', '01-exists'), { recursive: true });
+    // Phase 2 directory intentionally missing
+
+    const result = runGsdTools('validate consistency', tmpDir);
+    const parsed = JSON.parse(result.output);
+    assert.ok(parsed.gaps && parsed.gaps.length > 0, 'Should detect gap for missing phase 2');
+  });
+
+  test('should handle empty planning directory', () => {
+    // .planning exists but has no phases dir
+    const result = runGsdTools('validate consistency', tmpDir);
+    const parsed = JSON.parse(result.output);
+    assert.ok(parsed, 'Should return valid JSON even with empty planning');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
